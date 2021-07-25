@@ -22,6 +22,7 @@
 //  V1.2    2017-05-24  HARD_LIMIT从14改成了15，COMPANDOR_TC改成了3，即48ms。
 //  V1.3    2017-09-18	COMPEN_GAIN由3改成1,MIC_SENS_GAIN由9改成5,COMPANDOR_TC_48ms改成COMPANDOR_TC_12ms
 //  V1.4    2017-10-10  echo关闭的时候，不真正关echo而是把Echo_Ratio写成0,soft_rst不是在寄存器0x3e的bit15了，而是在0x1e的bit4.
+//  V1.5    2017-12-14  根据接收是KT0616M时，把BPSK_NEW_MODE改成0，否则为1
 //*****************************************************************************
 
 //-----------------------------------------------------------------------------
@@ -292,7 +293,12 @@
 #define    LOWVOLTAGE_TH           1400
 //#define    LOWVOLTAGE_TH        1800
 
-#define BPSK_NEW_MODE            1        //1:new mode  0:old mode
+#ifdef RXISKT0616M_BPSK
+	#define BPSK_NEW_MODE            0        //1:new mode  0:old mode
+#else
+	#define BPSK_NEW_MODE            1        //1:new mode  0:old mode
+#endif
+
 #define AUXDATA_EN               1        //BIT 14
 #define AUX_REG_NUM              3        //BIT 13:12
 #define AUX_CARRY_NUM            3        //BIT 11:9    00:12bit    01:16bit    10:18bit    11:20bit
