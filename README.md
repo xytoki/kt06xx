@@ -46,3 +46,9 @@ KT06xx是KTMicro公司推出的VHF/UHF无线麦克风发射/接收芯片系列�
 
 ### KT0650（真分集副芯片）
  - [(Datasheet) KT0650_datasheet_V0.1.2_CN.pdf](datasheets/KT0650_datasheet_V0.1.2_CN.pdf) 
+
+### KT0651（EEPROM配置 UHF接收 自动搜台）
+ - [(Datasheet) KT0651_datasheet_V0.1_CN.pdf](datasheets/KT0651_datasheet_V0.1_CN.pdf) 
+
+### KT0641（I2C配置 UHF发射 SDK同KT0646M）
+ - [(Datasheet) KT0641_Datasheet_V1.0_CN.pdf](datasheets/KT0641_Datasheet_V1.0_CN.pdf) 
