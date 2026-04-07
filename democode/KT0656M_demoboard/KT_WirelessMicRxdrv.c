@@ -24,6 +24,19 @@
 //  V1.8    2017-08-25  修改了AUTOMUTE_SNR_LOWTH和AUTOMUTE_SNR_HIGHTH的值
 //						从原来的0x58和0x60改成了0x78和0x80，增加了搜台功能的宏定义
 //						echo delay最多配置为23(197ms)
+//  V1.9    2017-11-21  修改了KT_WirelessMicRx_SAIInit函数 
+//  V1.10   2017-12-25  在调用KT_WirelessMicRx_SAIInit函数的位置加入 #ifdef I2S_EN
+//						配置I2S_Slave之前要先写i2s_slave_rst=1, 否则运行中修改I2S配置可能失败;
+//						在AUTOMUTE_EN未定义时，把AutoMute关掉(AutoMute默认是开的);
+//						I2S配置相关的宏定义加入 "KT_I2S_" 前缀, 防止SLAVE MASTER 之类模糊的宏定义造成冲突.
+//  V1.11   2018-03-22  根据芯片的版本来决定patch函数的调用与否
+//  V1.12   2018-04-08  根据芯片的版本来决定是否在tune台的时候把rfamp_int_en写为0，a版本需要写为0，b版本不能写为0
+//  V1.13   2018-05-03  根据芯片的版本来决定是否打开芯片内部的afc控制，a版本不打开内部的afc控制，b版本打开afc控制
+//						在b版本中，把TUNE函数的i2s的初始化部分注释掉了，其实不应该注释。
+//  V1.14   2018-06-27  KT_WirelessMicRx_GetFastRSSI读从机的FASTRSSI应该是0x0222寄存器，原来的写成了0x0221寄存器
+//						把linein 输入输出的音量调一致，把KVCO coarse aim设置为120MHz/V，修复快速tune台可能出现的问题，见#12359
+//  V1.15   2018-07-16  line_in初始化里面需要打开line in相关的电源，这样以后line in在什么时候打开都行，否则的话需要一上电就把line in使能打开
+//						增加了KT_WirelessMicRx_SetMaxRfGain函数，用来设置最大的RF_Gain.
 ///****************************************************************************
 
 //-----------------------------------------------------------------------------
@@ -47,6 +60,20 @@ extern UINT8 chipSel;
 extern UINT8 Flag_PKGSYNC[chipNumb]; //包同步状态标识
 
 UINT8 MorSSelect=1;//有天线分集时 1:主 0:从
+
+//1主1从
+strI2s chipAI2sConfig={KT_I2S_LRCLK96K,KT_I2S_MCLK12P288M,KT_I2S_SLAVE,KT_I2S_STRREO,KT_I2S_LEFT,KT_I2S_I2SMODE,KT_I2S_LENGHT24BIT};
+strI2s chipBI2sConfig={KT_I2S_LRCLK96K,KT_I2S_MCLK12P288M,KT_I2S_MASTER,KT_I2S_STRREO,KT_I2S_RIGHT,KT_I2S_I2SMODE,KT_I2S_LENGHT24BIT};
+
+////2从
+//strI2s chipAI2sConfig={KT_I2S_LRCLK96K,KT_I2S_MCLK12P288M,KT_I2S_SLAVE,KT_I2S_STRREO,KT_I2S_RIGHT,KT_I2S_I2SMODE,KT_I2S_LENGHT24BIT};
+//strI2s chipBI2sConfig={KT_I2S_LRCLK96K,KT_I2S_MCLK12P288M,KT_I2S_SLAVE,KT_I2S_STRREO,KT_I2S_LEFT,KT_I2S_I2SMODE,KT_I2S_LENGHT24BIT};
+//
+////1主
+//strI2s chipBI2sConfig={KT_I2S_LRCLK96K,KT_I2S_MCLK12P288M,KT_I2S_MASTER,KT_I2S_STRREO,KT_I2S_RIGHT,KT_I2S_I2SMODE,KT_I2S_LENGHT24BIT};
+//
+////1从
+//strI2s chipAI2sConfig={KT_I2S_LRCLK96K,KT_I2S_MCLK12P288M,KT_I2S_SLAVE,KT_I2S_STRREO,KT_I2S_LEFT,KT_I2S_I2SMODE,KT_I2S_LENGHT24BIT};
 
 //-----------------------------------------------------------------------------
 //函 数 名：KT_Bus_Write
@@ -166,6 +193,7 @@ BOOL KT_WirelessMicRx_PreInit(void)
 //版    本：V0.2    修改auto_mute control中移位的错误
 //版    本：V1.4    初始化中增加了修改0x1f和0x0d寄存器的值
 //版    本：V1.5    初始化函数中，把comp_tc由原来的1改成了3，把vtr_momitor_en配置为1使能，把ref_vtr_vth_sel配置为1
+//版    本：V1.6    版本判断中把加了b版本的型号
 //-----------------------------------------------------------------------------
 BOOL KT_WirelessMicRx_Init(void)
 {
@@ -177,7 +205,7 @@ BOOL KT_WirelessMicRx_Init(void)
 //    KT_Bus_Write(0x007F,(regx & 0xfe),chipSel); // power_on finish写0,在while（1）中读到power_on finish=1时，说明芯片重启了
 
 	regx=KT_Bus_Read(0x010f,chipSel);//FIRMWARE_VERSION
-	if(regx!=0x10)
+	if((regx!=0x10)&&(regx!=0x11))
 		return 0;
 
 	regx = KT_Bus_Read(0x0108,chipSel);          
@@ -189,7 +217,7 @@ BOOL KT_WirelessMicRx_Init(void)
 	KT_Bus_Write(0x000d,0xcf,chipSel); //6mA
 
 	//可通过0x16<5:0>的变化体现，注意:由于由软件完成该过程，改变此值后要重新tune台
-	KT_Bus_Write(0x0109,0x10,chipSel); //pll noise增加3db
+	KT_Bus_Write(0x0109,0x90,chipSel); //pll noise增加3db  KVCO coarse aim=120MHz/V
 
 //	regx = KT_Bus_Read(0x0224,chipSel);
 //	KT_Bus_Write(0x0224,(regx&0x9f)|0x20,chipSel); //audio_gain=1 增加3.5db
@@ -241,9 +269,14 @@ BOOL KT_WirelessMicRx_Init(void)
         }
     }
 #endif
+	 regx = KT_Bus_Read(0x0225,chipSel); //DC_NOTCH_MUTE_EN=1
+     KT_Bus_Write(0x0225,regx&0xf1,chipSel);
 
 //    regx=KT_Bus_Read(0x0053,chipSel);
 //    KT_Bus_Write(0x0053,regx|0x10,chipSel); //BPSK_PKG_SYN_INT_EN=1
+#else
+	 regx = KT_Bus_Read(0x0225,chipSel); //DC_NOTCH_MUTE_EN=0
+     KT_Bus_Write(0x0225,regx&0xf0,chipSel);
 #endif
 
 #ifdef SQUEAL_EN
@@ -267,13 +300,16 @@ BOOL KT_WirelessMicRx_Init(void)
 
     regx = KT_Bus_Read(0x0200,chipSel);          
     KT_Bus_Write(0x0200,(regx&0x8f)|(ADJUST_GAIN<<4),chipSel); //adjust gain =50kHz
-
-    regx = KT_Bus_Read(0x0225,chipSel); //DC_NOTCH_MUTE_EN=1
-    KT_Bus_Write(0x0225,regx&0xf1,chipSel);
-//	KT_Bus_Write(0x0225,regx&0xf0,chipSel);
-                                                
+                                      
 	regx = KT_Bus_Read(0x010e,chipSel);		  	 //AFC CTRL FSM使能控制位disable
-	KT_Bus_Write(0x010e,regx&0xfe,chipSel);
+	if(KT_Bus_Read(0x010f,chipSel)==0x10)//a
+	{
+		KT_Bus_Write(0x010e,regx&0xfe,chipSel);
+	}
+	else//b版本
+	{
+		KT_Bus_Write(0x010e,regx|0x01,chipSel);
+	}
 
 	regx=KT_Bus_Read(0x0087,chipSel);			//SOFT_AFC_MUTE写为0
 	KT_Bus_Write(0x0087,regx&~0x08,chipSel);
@@ -281,8 +317,8 @@ BOOL KT_WirelessMicRx_Init(void)
     regx = KT_Bus_Read(0x0217,chipSel); //
     KT_Bus_Write(0x0217,(regx&0x3f)|(AFC_RNG<<6)|0x01,chipSel);	// +/-60kHz;
 
-    KT_Bus_Write(0x0218,0x02,chipSel); //afc_en=1  AFC_FROZEN=0
-//	KT_Bus_Write(0x0218,0x00,chipSel); //afc_en=0   
+	KT_Bus_Write(0x0218,0x02,chipSel); //afc_en=1  AFC_FROZEN=0
+//	KT_Bus_Write(0x0218,0x00,chipSel); //afc_en=0
 
     regx = KT_Bus_Read(0x0256,chipSel); //comp_tc=1
     KT_Bus_Write(0x0256,(regx&0x8f)|0x10,chipSel); 
@@ -336,11 +372,26 @@ BOOL KT_WirelessMicRx_Init(void)
 		break;
 	}
 	#ifdef KT0655M
+	regx=KT_Bus_Read(0x003a,chipSel);
+	KT_Bus_Write(0x003a,(regx & 0x1f),chipSel);	//line in 相关电源打开
+	Delay_ms(10);
+	regx=KT_Bus_Read(0x003c,chipSel);
+	KT_Bus_Write(0x003c,(regx & 0x7f),chipSel);	//au_dig_rst=0
+	Delay_ms(15);
+	regx=KT_Bus_Read(0x0330,chipSel);
+	KT_Bus_Write(0x0330,(regx | 0x3f),chipSel);	//line_in en=1
+	
+	regx=KT_Bus_Read(0x0234,chipSel);
+	KT_Bus_Write(0x0234,(regx | 0x04),chipSel);//	打开有线输入信号
+	
 	regx=KT_Bus_Read(0x0331,chipSel);
 	KT_Bus_Write(0x0331,(regx & 0xfe)|LINEIN_AGC_DIS,chipSel);//LINEIN_AGC_DIS
 
 	regx=KT_Bus_Read(0x0333,chipSel);
 	KT_Bus_Write(0x0333,(regx & ~0x30)|(COMPEN_GAIN<<4),chipSel);//COMPEN_GAIN
+	
+	regx=KT_Bus_Read(0x0330,chipSel);
+	KT_Bus_Write(0x0330,(regx & 0xc1)|(LINEIN_LOCAL_VOL_CTRL<<1),chipSel);//COMPEN_GAIN
 
 	regx=KT_Bus_Read(0x0334,chipSel);
 	KT_Bus_Write(0x0334,(regx & ~0x18)|(PGA_GAIN_SEL<<3),chipSel);//PGA_GAIN_SEL
@@ -355,7 +406,18 @@ BOOL KT_WirelessMicRx_Init(void)
 	regx=KT_Bus_Read(0x033a,chipSel);
 	KT_Bus_Write(0x033a,(regx & ~0x08)|(ALC_SOFTKNEE<<3),chipSel);//ALC_SOFTKNEE
 	#endif
-    
+	
+	regx = KT_Bus_Read(0x0108,chipSel);          
+    KT_Bus_Write(0x0108,(regx|0x10),chipSel); //LOBAND_CALI_SCAN_EN=1 for fasttune
+	while(1)
+	{
+		Delay_ms(10);
+		if(0==(0x10&KT_Bus_Read(0x0108,chipSel)))
+		break;
+	}
+	
+	KT_Bus_Write(0x010b,0x60,chipSel);
+	
     return(1);
 }
 
@@ -391,7 +453,8 @@ BOOL KT_WirelessMicRx_Volume(UINT8 cVolume)
 //修 改 者：                        时间：                                
 //版    本：V0.1    For KT0656M 
 //版    本：V1.6    增加了根据KT0616M选晶体的程序 
-//版    本：V1.7    在切换晶振之前，先把PLL失锁中断关闭，tune台后再打开                                                                      
+//版    本：V1.7    在切换晶振之前，先把PLL失锁中断关闭，tune台后再打开
+//版    本：V1.12   如果是a版本，则在tune台前把rfamp_int_en=0，如果是b版本则不能写成0                                                                      
 //-----------------------------------------------------------------------------
 void KT_WirelessMicRx_Tune(long Freq)
 {
@@ -427,8 +490,11 @@ void KT_WirelessMicRx_Tune(long Freq)
     regx=KT_Bus_Read(0x0047,chipSel);
     KT_Bus_Write(0x0047,(regx & 0x0F) | Freq_L ,chipSel);
 
-	regx=KT_Bus_Read(0x0053,chipSel);
-	KT_Bus_Write(0x0053,regx&~0x40,chipSel);  //rfamp_int_en=0
+	if(KT_Bus_Read(0x010f,chipSel)==0x10)//a
+	{
+		regx=KT_Bus_Read(0x0053,chipSel);
+		KT_Bus_Write(0x0053,regx&~0x40,chipSel);  //rfamp_int_en=0
+	}
 
     regx=KT_Bus_Read(0x0047,chipSel);
     KT_Bus_Write(0x0047,regx | BIT0,chipSel); //chan_valid=1;
@@ -438,54 +504,67 @@ void KT_WirelessMicRx_Tune(long Freq)
 	Delay_ms(1); 
     while (!(KT_Bus_Read(0x0061,chipSel) & 0x01)); //PLL done
 
-	regx=KT_Bus_Read(0x0042,chipSel);
-	KT_Bus_Write(0x0042,regx | BIT2,chipSel);//S_DSP_RST
-
-	regx=KT_Bus_Read(0x0042,chipSel);
-	KT_Bus_Write(0x0042,regx | BIT4,chipSel);//S_PLL_SDM_RST			
-
-	regx=KT_Bus_Read(0x0030,chipSel);
-	LO_LOCK_DET_PD_SAVE = regx&0x80;
-	KT_Bus_Write(0x0030,regx | BIT7,chipSel);//LO_LOCK_DET_PD=1
-   
-	regx=KT_Bus_Read(0x0017,chipSel); //double+16MHz/V locoarse_var_sel
-    state=regx&0x07;
-    if(state >= 3)
-    {
-        state = 7;                                
-    }
-    else
-    {
-        state = (state<<1) + 3;
-    }
-    regx=(regx&0xf8)|state;                                          
-    KT_Bus_Write(0x0017, regx,chipSel); //write locoarse/lofine_var_sel
-
-	Pll_Band_Cali(0, 255);
-
-	PLL_Reset();
-
-	regx=KT_Bus_Read(0x0042,chipSel);
-	KT_Bus_Write(0x0042,regx & ~BIT4,chipSel);//C_PLL_SDM_RST
-
-	regx=KT_Bus_Read(0x0042,chipSel);
-	KT_Bus_Write(0x0042,regx & ~BIT2,chipSel);//C_DSP_RST
-
-	Delay_ms(10);
-
-	regx=KT_Bus_Read(0x0030,chipSel);
-	KT_Bus_Write(0x0030,(regx & ~BIT7)|LO_LOCK_DET_PD_SAVE,chipSel);//LO_LOCK_DET_PD recovery
-
-//	regx = KT_Bus_Read(0x0133,chipSel);          
-//    KT_Bus_Write(0x0133,(regx|0x60),chipSel); // dll_rst_en=1 I_PLL_UNLOCK_EN=1  
-
-    KT_WirelessMicRx_SAIInit();
-
-	if(KT_WirelessMicRx_GetSNR()>AUTOMUTE_SNR_LOWTH)
+	if(KT_Bus_Read(0x010f,chipSel)==0x10)//a
 	{
-		regx=KT_Bus_Read(0x0087,chipSel);			//SOFT_SNR_MUTE写为0
-		KT_Bus_Write(0x0087,regx&~0x02,chipSel);
+		regx=KT_Bus_Read(0x0042,chipSel);
+		KT_Bus_Write(0x0042,regx | BIT2,chipSel);//S_DSP_RST
+
+		regx=KT_Bus_Read(0x0042,chipSel);
+		KT_Bus_Write(0x0042,regx | BIT4,chipSel);//S_PLL_SDM_RST			
+
+		regx=KT_Bus_Read(0x0030,chipSel);
+		LO_LOCK_DET_PD_SAVE = regx&0x80;
+		KT_Bus_Write(0x0030,regx | BIT7,chipSel);//LO_LOCK_DET_PD=1
+	   
+		regx=KT_Bus_Read(0x0017,chipSel); //double+16MHz/V locoarse_var_sel
+		state=regx&0x07;
+		if(state >= 3)
+		{
+			state = 7;                                
+		}
+		else
+		{
+			state = (state<<1) + 3;
+		}
+		regx=(regx&0xf8)|state;                                          
+		KT_Bus_Write(0x0017, regx,chipSel); //write locoarse/lofine_var_sel
+
+		Pll_Band_Cali(0, 255);
+
+		PLL_Reset();
+
+		regx=KT_Bus_Read(0x0042,chipSel);
+		KT_Bus_Write(0x0042,regx & ~BIT4,chipSel);//C_PLL_SDM_RST
+
+		regx=KT_Bus_Read(0x0042,chipSel);
+		KT_Bus_Write(0x0042,regx & ~BIT2,chipSel);//C_DSP_RST
+
+		Delay_ms(10);
+
+		regx=KT_Bus_Read(0x0030,chipSel);
+		KT_Bus_Write(0x0030,(regx & ~BIT7)|LO_LOCK_DET_PD_SAVE,chipSel);//LO_LOCK_DET_PD recovery
+
+	//	regx = KT_Bus_Read(0x0133,chipSel);          
+	//    KT_Bus_Write(0x0133,(regx|0x60),chipSel); // dll_rst_en=1 I_PLL_UNLOCK_EN=1  
+
+		if(KT_WirelessMicRx_GetSNR()>AUTOMUTE_SNR_LOWTH)
+		{
+			regx=KT_Bus_Read(0x0087,chipSel);			//SOFT_SNR_MUTE写为0
+			KT_Bus_Write(0x0087,regx&~0x02,chipSel);
+		}
 	}
+	#ifdef I2S_EN
+		if(chipSel<chipBM)
+		{
+			KT_WirelessMicRx_SAIInit(&chipAI2sConfig);
+		}
+		#ifdef TWOCHANNEL
+		else
+		{
+			KT_WirelessMicRx_SAIInit(&chipBI2sConfig);
+		}
+		#endif
+	#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -497,7 +576,8 @@ void KT_WirelessMicRx_Tune(long Freq)
 //返    回：无                                        
 //设 计 者：Zhou Dongfeng           时间：2016-07-12                                
 //修 改 者：                        时间：                                
-//版    本：V0.1    For KT0656M                                                                    
+//版    本：V0.1    For KT0656M 
+//版    本：V1.12   如果是a版本，则在tune台前把rfamp_int_en=0，如果是b版本则不能写成0                                                                    
 //-----------------------------------------------------------------------------
 void KT_WirelessMicRx_FastTune(long Freq)
 {
@@ -526,17 +606,29 @@ void KT_WirelessMicRx_FastTune(long Freq)
     regx=KT_Bus_Read(0x0047,chipSel);
     KT_Bus_Write(0x0047,(regx & 0x0F) | Freq_L ,chipSel);
 
-	regx=KT_Bus_Read(0x0053,chipSel);
-	KT_Bus_Write(0x0053,regx&~0x40,chipSel);  //rfamp_int_en=0
+	if(KT_Bus_Read(0x010f,chipSel)==0x10)//a
+	{
+		regx=KT_Bus_Read(0x0053,chipSel);
+		KT_Bus_Write(0x0053,regx&~0x40,chipSel);  //rfamp_int_en=0
+	}
 
     regx=KT_Bus_Read(0x0047,chipSel);
     KT_Bus_Write(0x0047,regx | BIT0,chipSel); //chan_valid=1;
 
 	Delay_ms(1); 
     while (!(KT_Bus_Read(0x0061,chipSel) & 0x01)); //PLL done
- 
-    KT_WirelessMicRx_SAIInit();
-
+ 	#ifdef I2S_EN
+	    if(chipSel<chipBM)
+		{
+			KT_WirelessMicRx_SAIInit(&chipAI2sConfig);
+		}
+		#ifdef TWOCHANNEL
+		else
+		{
+			KT_WirelessMicRx_SAIInit(&chipBI2sConfig);
+		}
+		#endif
+	#endif
 	if(KT_WirelessMicRx_GetSNR()>AUTOMUTE_SNR_LOWTH)
 	{
 		regx=KT_Bus_Read(0x0087,chipSel);			//SOFT_SNR_MUTE写为0
@@ -760,7 +852,7 @@ UINT8 KT_WirelessMicRx_GetFastRSSI(void)
 	}
 	else
 	{
-		cRssi = KT_Bus_Read(0x0221,chipSel);
+		cRssi = KT_Bus_Read(0x0222,chipSel);
 	}
     return( cRssi );
 }
@@ -1133,15 +1225,18 @@ void rfIntCtl(void)
 	UINT8 regx;
 	for(chipSel=0;chipSel<chipNumb;chipSel++)
 	{
-		if(!(0x7f&KT_Bus_Read(0x005b,chipSel)))
+		if(KT_Bus_Read(0x010f,chipSel)==0x10)
 		{
-			regx=KT_Bus_Read(0x0053,chipSel);
-			KT_Bus_Write(0x0053,regx&~0x40,chipSel);
-		}
-		else
-		{
-			regx=KT_Bus_Read(0x0053,chipSel);
-			KT_Bus_Write(0x0053,regx|0x40,chipSel);
+			if(!(0x7f&KT_Bus_Read(0x005b,chipSel)))
+			{
+				regx=KT_Bus_Read(0x0053,chipSel);
+				KT_Bus_Write(0x0053,regx&~0x40,chipSel);
+			}
+			else
+			{
+				regx=KT_Bus_Read(0x0053,chipSel);
+				KT_Bus_Write(0x0053,regx|0x40,chipSel);
+			}
 		}
 	}
 }
@@ -1162,16 +1257,52 @@ static void  pilotMuteRefresh(void)
 	UINT8 regx;
 	for(chipSel=0;chipSel<chipNumb;chipSel++)
 	{
-		if(((0x80&KT_Bus_Read(0x0100,chipSel))==0x80)&&((0x80&KT_Bus_Read(0x0209,chipSel))==0x00))
-	    {
-	        regx=KT_Bus_Read(0x0087,chipSel);
-	        KT_Bus_Write(0x0087,(regx|0x04),chipSel);
-	    }
-		else
-	    {
-			regx=KT_Bus_Read(0x0087,chipSel);
-	        KT_Bus_Write(0x0087,(regx&~0x04),chipSel);
-	    }
+		if(KT_Bus_Read(0x010f,chipSel)==0x10)
+		{
+			if(((0x80&KT_Bus_Read(0x0100,chipSel))==0x80)&&((0x80&KT_Bus_Read(0x0209,chipSel))==0x00))
+			{
+				regx=KT_Bus_Read(0x0087,chipSel);
+				KT_Bus_Write(0x0087,(regx|0x04),chipSel);
+			}
+			else
+			{
+				regx=KT_Bus_Read(0x0087,chipSel);
+				KT_Bus_Write(0x0087,(regx&~0x04),chipSel);
+			}
+		}
+	}
+}
+
+//-----------------------------------------------------------------------------
+//函 数 名：KT_WirelessMicRx_SetMaxRfGain
+//功能描述：KT_WirelessMicRx_SetMaxRfGain
+//函数说明：设置最大射频增益
+//全局变量：无
+//输    入：UINT8 sel
+//返    回：无   
+//设 计 者：wu jinfeng              时间：2019-03-01
+//修 改 者：                        时间：
+//版    本：V1.0
+//-----------------------------------------------------------------------------
+void  KT_WirelessMicRx_SetMaxRfGain(UINT8 sel)//输入范围0-3 对应36，40，44，48
+{
+	UINT8 regx;
+	UINT8 rfGain;	
+	for(chipSel=0;chipSel<chipNumb;chipSel++)
+	{
+		if(sel>3)
+		sel=3;
+		regx=KT_Bus_Read(0x0102,chipSel);
+		regx&=0xfc;
+		regx|=sel;
+		KT_Bus_Write(0x0102,regx,chipSel);
+		regx=KT_Bus_Read(0x005b,chipSel);
+		rfGain=regx&0x7f;
+		if(rfGain>((sel<<2)+42))
+		{
+			rfGain=(sel<<2)+42;
+			KT_Bus_Write(0x005b,(regx&0x80)|rfGain,chipSel);
+		}		
 	}
 }
 
@@ -1191,18 +1322,21 @@ static void  snrMuteRefresh(void)
 	UINT8 regx;
 	for(chipSel=0;chipSel<chipNumb;chipSel++)
 	{
-		if(((KT_Bus_Read(0x0100,chipSel)&0x20)==0x20)&&(KT_Bus_Read(0x020D,chipSel)<=AUTOMUTE_SNR_LOWTH))
-	    {
-	        regx=KT_Bus_Read(0x0087,chipSel);
-	        KT_Bus_Write(0x0087,(regx|0x02),chipSel);
-	    }
-		else if((KT_Bus_Read(0x020D,chipSel)>=AUTOMUTE_SNR_HIGHTH)||((KT_Bus_Read(0x0100,chipSel)&0x20)==0x00))
-	    {
-			regx=KT_Bus_Read(0x0087,chipSel);
-	        KT_Bus_Write(0x0087,(regx&~0x02),chipSel);
-	    }
-		else
+		if(KT_Bus_Read(0x010f,chipSel)==0x10)
 		{
+			if(((KT_Bus_Read(0x0100,chipSel)&0x20)==0x20)&&(KT_Bus_Read(0x020D,chipSel)<=AUTOMUTE_SNR_LOWTH))
+			{
+				regx=KT_Bus_Read(0x0087,chipSel);
+				KT_Bus_Write(0x0087,(regx|0x02),chipSel);
+			}
+			else if((KT_Bus_Read(0x020D,chipSel)>=AUTOMUTE_SNR_HIGHTH)||((KT_Bus_Read(0x0100,chipSel)&0x20)==0x00))
+			{
+				regx=KT_Bus_Read(0x0087,chipSel);
+				KT_Bus_Write(0x0087,(regx&~0x02),chipSel);
+			}
+			else
+			{
+			}
 		}
 	}
 }
@@ -1228,8 +1362,11 @@ void KT_WirelessMicRx_Patch(void)
 void Seek_Freq_FastTune(long Freq)
 {
     UINT8 Freq_H,Freq_M,Freq_L,regx;
-	regx=KT_Bus_Read(0x0053,chipSel);
-	KT_Bus_Write(0x0053,regx&~0x40,chipSel);  //rfamp_int_en=0  
+	if(KT_Bus_Read(0x010f,chipSel)==0x10)//a
+	{
+		regx=KT_Bus_Read(0x0053,chipSel);
+		KT_Bus_Write(0x0053,regx&~0x40,chipSel);  //rfamp_int_en=0
+	} 
 #ifdef XTAL_DUAL
 	#ifdef NEW_SEL_XTAL_MODE
     	caclXtal(Freq);//select xtal
@@ -1528,19 +1665,38 @@ static void oldCaclXtal(INT32 Freq)
 //返    回：无
 //设 计 者：Zhou Dongfeng           时间：2016-07-13                                
 //修 改 者：                        时间：                                
-//版    本：V0.1    For KT0656M                    
+//版    本：V0.1    For KT0656M 
+//版    本：V1.9    修改了KT_WirelessMicRx_SAIInit初始化函数                    
 //-----------------------------------------------------------------------------
-void KT_WirelessMicRx_SAIInit(void)
+void KT_WirelessMicRx_SAIInit(pStrI2s i2sConfigTemp)
 {
     UINT8 regx;
-#ifdef DIVERSITY
-    if(chipSel>chipAS) //B通道
-#else
-    if(chipSel>chipAM) //B通道
-#endif
+	KT_Bus_Write(0x0052,0x04,chipSel);
+	if(i2sConfigTemp->masterOrSlave==1)	 //mater
     {
-        KT_Bus_Write(0x0050, 0x20,chipSel); //stereo_mono_sel=1 LR_SEL=0   //1 left  0 right
-        KT_Bus_Write(0x0051, 0x10,chipSel); //默认情况下，mclk=12m,mclk/lrclk=128,i2s标准，对应dac double模式
+        regx = KT_Bus_Read(0x0050,chipSel);
+		KT_Bus_Write(0x0050,(regx&0xc0)|((i2sConfigTemp->stereoOrMono)<<5)|
+		((i2sConfigTemp->leftOrRight)<<4)|((i2sConfigTemp->mode)<<2)|(i2sConfigTemp->dataLength),chipSel);
+		regx = KT_Bus_Read(0x0051,chipSel);
+		if((i2sConfigTemp->LRCLK)==	KT_I2S_LRCLK48K)
+		{			
+			KT_Bus_Write(0x0051, (regx&0xf0)|(i2sConfigTemp->mode)|0x18,chipSel);
+		}
+		else if((i2sConfigTemp->LRCLK)==KT_I2S_LRCLK192K)
+		{
+			KT_Bus_Write(0x0051, (regx&0xf0)|(i2sConfigTemp->mode)|0x14,chipSel);
+		}
+		else  //96K
+		{
+			if((i2sConfigTemp->MCLK)==KT_I2S_MCLK24P576M)
+			{
+				KT_Bus_Write(0x0051, (regx&0xf0)|(i2sConfigTemp->mode)|0x1c,chipSel);
+			}
+			else
+			{
+				KT_Bus_Write(0x0051, (regx&0xf0)|(i2sConfigTemp->mode)|0x10,chipSel);	
+			}
+		}
         KT_Bus_Write(0x0052, 0x02,chipSel); //i2s_master_en= 1
     }
     else
@@ -1549,13 +1705,42 @@ void KT_WirelessMicRx_SAIInit(void)
         KT_Bus_Write(0x004d,0x01,chipSel); //自动估算，快速模式，phase=0,unlock_tw=0
         regx = KT_Bus_Read(0x004d,chipSel);
         KT_Bus_Write(0x004d,regx|0x80,chipSel); //unlock_tw_cfg_rdy = 1
-        KT_Bus_Write(0x0050,0x36,chipSel); //立体声，左声道，i2s标准以及24bit data
+		regx = KT_Bus_Read(0x0050,chipSel);
+        KT_Bus_Write(0x0050,(regx&0xc0)|((i2sConfigTemp->stereoOrMono)<<5)|
+		((i2sConfigTemp->leftOrRight)<<4)|((i2sConfigTemp->mode)<<2)|(i2sConfigTemp->dataLength),chipSel); 
         regx = KT_Bus_Read(0x0050,chipSel);
         KT_Bus_Write(0x0050,regx|0x40,chipSel); //i2s_slave_sync_en=1
         regx = KT_Bus_Read(0x0052,chipSel);
         KT_Bus_Write(0x0052,regx|0x08,chipSel); //i2ss_pad_sdout_oen=1    
     }
 }
+
+//void KT_WirelessMicRx_SAIInit(void)
+//{
+//    UINT8 regx;
+//#ifdef DIVERSITY
+//    if(chipSel>chipAS) //B通道
+//#else
+//    if(chipSel>chipAM) //B通道
+//#endif
+//    {
+//        KT_Bus_Write(0x0050, 0x20,chipSel); //stereo_mono_sel=1 LR_SEL=0   //1 left  0 right
+//        KT_Bus_Write(0x0051, 0x10,chipSel); //默认情况下，mclk=12m,mclk/lrclk=128,i2s标准，对应dac double模式
+//        KT_Bus_Write(0x0052, 0x02,chipSel); //i2s_master_en= 1
+//    }
+//    else
+//    {            
+//        KT_Bus_Write(0x0052,0x01,chipSel); //i2s_slave_en = 1
+//        KT_Bus_Write(0x004d,0x01,chipSel); //自动估算，快速模式，phase=0,unlock_tw=0
+//        regx = KT_Bus_Read(0x004d,chipSel);
+//        KT_Bus_Write(0x004d,regx|0x80,chipSel); //unlock_tw_cfg_rdy = 1
+//        KT_Bus_Write(0x0050,0x36,chipSel); //立体声，左声道，i2s标准以及24bit data
+//        regx = KT_Bus_Read(0x0050,chipSel);
+//        KT_Bus_Write(0x0050,regx|0x40,chipSel); //i2s_slave_sync_en=1
+//        regx = KT_Bus_Read(0x0052,chipSel);
+//        KT_Bus_Write(0x0052,regx|0x08,chipSel); //i2ss_pad_sdout_oen=1    
+//    }
+//}
 #endif
 
 //I2S 主左从右 主有从无
