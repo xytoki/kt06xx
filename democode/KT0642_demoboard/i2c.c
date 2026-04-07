@@ -14,7 +14,7 @@ bit Ack_Flag=0;													// I2C Ack Flag
 //------------------------------------------------------------------------------------
 // Function PROTOTYPES
 //------------------------------------------------------------------------------------
-void I2C_Delay(void);											// É¨¼ü£¬LCD£¬I2CÑÓÊ±
+void I2C_Delay(void);											// æ‰«é”®ï¼ŒLCDï¼ŒI2Cå»¶æ—¶
 void I2C_Start(void);
 void I2C_Senddata(uchar senddata);
 void I2C_Ack(void);
@@ -147,7 +147,7 @@ uint I2C_Word_Read(uchar device_address, uchar reg_add)
 			 I2C_Ack();
 			 if (Ack_Flag == 0)
 				{
-//				 SDA = 1;//SDA ÉèÎªÊäÈë£¬¶ÁÒý½Å
+//				 SDA = 1;//SDA è®¾ä¸ºè¾“å…¥ï¼Œè¯»å¼•è„š
 				 readdata_high = I2C_Receivedata();
 				 SDA = 0;
 				 I2C_Delay();I2C_Delay();
