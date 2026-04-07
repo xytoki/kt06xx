@@ -23,6 +23,8 @@
 //  V1.3    2017-09-18	COMPEN_GAIN由3改成1,MIC_SENS_GAIN由9改成5,COMPANDOR_TC_48ms改成COMPANDOR_TC_12ms
 //  V1.4    2017-10-10  echo关闭的时候，不真正关echo而是把Echo_Ratio写成0,soft_rst不是在寄存器0x3e的bit15了，而是在0x1e的bit4.
 //  V1.5    2017-12-14  根据接收是KT0616M时，把BPSK_NEW_MODE改成0，否则为1
+//  V1.6    2018-12-11  在tune完台通过操作bpsk_dat_en（先写0再写1），可以使RX正常接收到数据，redmine 11433
+//          		    压扩功能开启或关闭封成了一个函数，KT_WirelessMicTx_COMPANDOR_Dis(BOOL COMP_Dis),传入的参数为1则关闭，否则开启
 //*****************************************************************************
 
 //-----------------------------------------------------------------------------
@@ -94,22 +96,22 @@
 #define    PRE_EMPHASIS_ENABLE      0
 #define    PRE_EMPHASIS_DISABLE     1
 
-#define    MIC_SENS_GAIN_0     0
-#define    MIC_SENS_GAIN_1     1
-#define    MIC_SENS_GAIN_2     2
-#define    MIC_SENS_GAIN_3     3
-#define    MIC_SENS_GAIN_4     4
-#define    MIC_SENS_GAIN_5     5
-#define    MIC_SENS_GAIN_6     6
-#define    MIC_SENS_GAIN_7     7
-#define    MIC_SENS_GAIN_8     8
-#define    MIC_SENS_GAIN_9     9
-#define    MIC_SENS_GAIN_10    10
-#define    MIC_SENS_GAIN_11    11
-#define    MIC_SENS_GAIN_12    12
-#define    MIC_SENS_GAIN_13    13
-#define    MIC_SENS_GAIN_14    14
-#define    MIC_SENS_GAIN_15    15
+#define    MIC_SENS_GAIN_0     0	//20K
+#define    MIC_SENS_GAIN_1     1	//25K
+#define    MIC_SENS_GAIN_2     2	//30K
+#define    MIC_SENS_GAIN_3     3	//35K
+#define    MIC_SENS_GAIN_4     4	//40K
+#define    MIC_SENS_GAIN_5     5	//50K
+#define    MIC_SENS_GAIN_6     6	//60K
+#define    MIC_SENS_GAIN_7     7	//70K
+#define    MIC_SENS_GAIN_8     8	//80K
+#define    MIC_SENS_GAIN_9     9	//100K
+#define    MIC_SENS_GAIN_10    10	//120K
+#define    MIC_SENS_GAIN_11    11	//140K
+#define    MIC_SENS_GAIN_12    12	//160K
+#define    MIC_SENS_GAIN_13    13	//200K
+#define    MIC_SENS_GAIN_14    14	//240K
+#define    MIC_SENS_GAIN_15    15	//280K
 
 #define    COMPANDOR_ENABLE    0
 #define    COMPANDOR_DISABLE   1
@@ -156,7 +158,7 @@
 #define    AGC_DIS                  1//0        //AGC控制：0-自动控制；1-MCU控制
 
 #define    GAIN_SEL                 1        //PGA增益：0:（-6dB）,1:0dB,2:6dB,3:12dB
-#define    COMPEN_GAIN              1//3     //总体增益：0-0dB,1-6dB,2-12dB,3-18dB
+#define    COMPEN_GAIN              1//3     //总体增益：0:0dB,1:6dB,2:12dB,3:18dB
 #define    BLANK_EN                 1        //BLANK控制：0-DIS；1-EN
 #define    BLANK_TIME               3        //BLANK时间：0-7可选
 
@@ -278,6 +280,19 @@
 #define    CPRS_KNEE_DIS            0        //噪声控制：0-开启；1-关闭
 #define    CPRS_THRSH               8        //噪声门限：0-15可选 18uV-14mV
 
+/****************************************************************************
+ALC 设置方法
+1、设置ALC_DIS决定是否开启ALC功能
+2、设置ALC_SOFTKNEE决定使用硬拐点还是软拐点
+3、设置ALC_VMAX的值
+
+ALC_VMAX的值需要根据发射和接收的频偏计算出来，计算公式为：
+(接收频偏值/发射频偏值/2/0.57)^2*0.57
+例如发射MIC_SENS_GAIN_6，即频偏为60K,接收的ADJUST_GAIN设置为1，即为50K频偏
+则(50/60/2/0.57)^2*0.57=0.3045
+如果选的是硬拐点，这ALC_VMAX的拐点选择小于等于0.3045，查datasheet可得ALC_VMAX应配置为72
+如果选的是软拐点，这ALC_VMAX的拐点选择小于等于0.3045/1.5=0.203，查datasheet可得ALC_VMAX应配置为54
+***************************************************************************/
 #define    ALC_DIS                 1//0      //ALC控制：0-开启；1-关闭
 #define    ALC_SOFTKNEE            1         //ALC拐点类型：0-硬拐点；1-软拐点
 #define    ALC_VMAX                68//4     //ALC门限：0-127可选
@@ -351,4 +366,5 @@ void KT_WirelessMicTx_EQGAIN(UINT8 Eq_Freq,UINT8 Eq_Gain);
 UINT16 KT_WirelessMicTx_BatteryMeter_Read(void);
 BOOL KT_WirelessMicTx_BatteryMeter_SW(BOOL bBatteryMeter_En);
 BOOL KT_WirelessMicTx_Mic_Sens(UINT8 cMicSens);
+void KT_WirelessMicTx_COMPANDOR_Dis(BOOL COMP_Dis);//COMP_Dis=1 disable COMPANDOR;COMP_En=0 enable COMPANDOR
 
