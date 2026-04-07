@@ -24,10 +24,24 @@
 //  V1.8    2017-08-25  修改了AUTOMUTE_SNR_LOWTH和AUTOMUTE_SNR_HIGHTH的值
 //						从原来的0x58和0x60改成了0x78和0x80,增加了搜台功能的宏定义
 //						echo delay最多配置为23(197ms)
-// 	   
+//  V1.9    2017-11-21  修改了KT_WirelessMicRx_SAIInit函数	   
+//  V1.10   2017-12-25  在调用KT_WirelessMicRx_SAIInit函数的位置加入 #ifdef I2S_EN
+//						配置I2S_Slave之前要先写i2s_slave_rst=1, 否则运行中修改I2S配置可能失败;
+//						在AUTOMUTE_EN未定义时，把AutoMute关掉(AutoMute默认是开的);
+//						I2S配置相关的宏定义加入 "KT_I2S_" 前缀, 防止"LEFT" "RIGHT"之类模糊的宏定义造成冲突.
+//  V1.11   2018-03-22  根据芯片的版本来决定patch函数的调用与否
+//  V1.12   2018-04-08  根据芯片的版本来决定是否在tune台的时候把rfamp_int_en写为0，a版本需要写为0，b版本不能写为0
+//  V1.13   2018-05-03  根据芯片的版本来决定是否打开芯片内部的afc控制，a版本不打开内部的afc控制，b版本打开afc控制
+//						在b版本中，把TUNE函数的i2s的初始化部分注释掉了，其实不应该注释。
+//  V1.14   2018-06-27  KT_WirelessMicRx_GetFastRSSI读从机的FASTRSSI应该是0x0222寄存器，原来的写成了0x0221寄存器
+//						把linein 输入输出的音量调一致，把KVCO coarse aim设置为120MHz/V，修复快速tune台可能出现的问题，见#12359
+//  V1.15   2018-07-16  line_in初始化里面需要打开line in相关的电源，这样以后line in在什么时候打开都行，否则的话需要一上电就把line in使能打开
+//						增加了KT_WirelessMicRx_SetMaxRfGain函数，用来设置最大的RF_Gain.
 //-----------------------------------------------------------------------------
 // Includes
 //-----------------------------------------------------------------------------
+#ifndef _KT_WirelessMicRxdrv_h_
+#define _KT_WirelessMicRxdrv_h_
 #include "interface.h"
 
 //-----------------------------------------------------------------------------
@@ -102,9 +116,9 @@
 //频点范围及步进
 #define    BAND_TOP_CHA            754850//727550//754850//662500
 #define    BAND_BOTTOM_CHA         740150//710450//740150
-#define    BAND_TOP_CHB            769850//743750//769850
-#define    BAND_BOTTOM_CHB         755150//728150//755150
-#define    BAND_STEP               300
+#define    BAND_TOP_CHB            800000//743750//769850
+#define    BAND_BOTTOM_CHB         650000//728150//755150
+#define    BAND_STEP               50
 
 //电池电压检测
 #define    BATTERY_MAX             0x7FF
@@ -114,7 +128,8 @@
 
 #ifdef KT0655M
 	#define LINEIN_AGC_DIS	 0 			//0：使用自动调整增益的功能 1：不使用自动调整功能
-	#define COMPEN_GAIN	   1  			//0：补偿后总增益为0dB 1：补偿后总体增益为6dB 2：补偿后总体增益为12dB 3：补偿后总体增益为18dB
+	#define LINEIN_LOCAL_VOL_CTRL 30
+	#define COMPEN_GAIN	   2  			//0：补偿后总增益为0dB 1：补偿后总体增益为6dB 2：补偿后总体增益为12dB 3：补偿后总体增益为18dB
 	#define PGA_GAIN_SEL 3 				// 2'b00：-6dB 2'b01：0dB 2'b10：6dB	2'b11：12dB
 	#define	SLNC_MUTE_TIME	0x13		//
 	#define SLNC_MUTE_DIS  1			//0：使能Silence Mute功能 1：关闭Silence Mute功能。
@@ -237,11 +252,46 @@ typedef struct
     UINT8 exciterEven;
 }soundEffect,*pSoundEffect;
 
+#define KT_I2S_LRCLK48K		0
+#define KT_I2S_LRCLK96K		1
+#define KT_I2S_LRCLK192K		2
+#define KT_I2S_MCLK24P576M		1
+#define KT_I2S_MCLK12P288M		0
+#define KT_I2S_MASTER 			1
+#define KT_I2S_SLAVE  			0
+#define KT_I2S_STRREO 			1
+#define KT_I2S_MONO   			0
+#define KT_I2S_LEFT   			1
+#define KT_I2S_RIGHT  			0
+#define KT_I2S_NOMODE  		0
+#define KT_I2S_I2SMODE  		1
+#define KT_I2S_LEFTMODE 		2
+#define KT_I2S_RIGHTMODE 		3
+#define KT_I2S_LENGHT16BIT		0
+#define KT_I2S_LENGHT20BIT		1
+#define KT_I2S_LENGHT24BIT		2
+#define KT_I2S_LENGHT8BIT		3
+
+typedef struct
+{
+	UINT8 LRCLK;
+	UINT8 MCLK;
+	UINT8 masterOrSlave;//1:master 0:slave
+	UINT8 stereoOrMono;//1:stereo 0:Mono
+	UINT8 leftOrRight;//1:left 0:right
+	UINT8 mode;//0:不能选 1:I2S 2:左对齐 3:右对齐
+	UINT8 dataLength;//0:16 1:20 2:24 3:8
+}strI2s,*pStrI2s;
+
+
 extern pSoundEffect pChangeSound;
 extern soundEffect data soundA;
 
+extern strI2s chipAI2sConfig;
+
 #ifdef TWOCHANNEL
 extern soundEffect data soundB;
+extern strI2s chipBI2sConfig;
 #endif
 
 //-----------------------------------------------------------------------------
@@ -269,7 +319,7 @@ void KT_WirelessMicRx_CheckAUXCH(void);
 UINT8 KT_WirelessMicRx_CheckPilot(void);
 UINT8 KT_WirelessMicRx_GetSNR(void);
 void KT_WirelessMicRx_SelectMS(void);
-void KT_WirelessMicRx_SAIInit(void);
+void KT_WirelessMicRx_SAIInit(pStrI2s i2sConfigTemp);
 void KT_WirelessMicRx_FastTune(long Freq);
 void KT_WirelessMicRx_Patch(void);
 UINT16 KT_WirelessMicRx_BatteryMeter_Read(void);
@@ -283,3 +333,6 @@ static void  pilotMuteRefresh(void);
 void rfIntCtl(void);
 static void selXtal(bit xtalSel);
 static void  snrMuteRefresh(void);
+void  KT_WirelessMicRx_SetMaxRfGain(UINT8 sel);//输入范围0-3 对应36，40，44，48
+
+#endif

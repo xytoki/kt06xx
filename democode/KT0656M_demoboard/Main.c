@@ -17,6 +17,8 @@
 //						把rfIntCtl();pilotMuteRefresh();snrMuteRefresh();移到了驱动文件(Main.c)
 //  V1.7     2017-06-28 增加了BATTERY_Display函数，用来显示接收机的电池电压(Main.c)
 //  V1.8     2017-09-18 增加了根据搜台功能宏定义开关来决定一些代码
+//  V1.9     2017-11-21 由于修改了KT_WirelessMicRx_SAIInit函数，所以i2sInit也修改了
+//  V1.10    2018-04-08 rfIntCtlChip, pilotMuteRefreshChip,snrMuteRefreshChip函数运行前判断一下芯片版本
 //*****************************************************************************
 
 //-----------------------------------------------------------------------------
@@ -325,13 +327,23 @@ void burnOtp(void)
 //设 计 者：KANG Hekai              时间：2012-08-01
 //修 改 者：                        时间：
 //版    本：V1.0
+//版    本：V1.9  由于修改了KT_WirelessMicRx_SAIInit函数，所以i2sInit也修改了
 //-----------------------------------------------------------------------------
 void i2sInit(void)
 {
     #ifdef I2S_EN
     for(chipSel=0;chipSel<chipNumb;chipSel++)
     {
-        KT_WirelessMicRx_SAIInit();    
+        if(chipSel<chipBM)
+		{
+			KT_WirelessMicRx_SAIInit(&chipAI2sConfig);
+		}
+		#ifdef TWOCHANNEL
+		else
+		{
+			KT_WirelessMicRx_SAIInit(&chipBI2sConfig);
+		}
+		#endif    
     }
     #endif
 }
@@ -412,15 +424,18 @@ void main (void)
 void rfIntCtlChip(UINT8 chip)
 {
 	UINT8 regx;
-	if(!(0x7f&KT_Bus_Read(0x005b,chip)))
-	{
-		regx=KT_Bus_Read(0x0053,chip);
-		KT_Bus_Write(0x0053,regx&~0x40,chip);
-	}
-	else
-	{
-		regx=KT_Bus_Read(0x0053,chip);
-		KT_Bus_Write(0x0053,regx|0x40,chip);
+	if(KT_Bus_Read(0x010f,chip)==0x10)//a
+	{		
+		if(!(0x7f&KT_Bus_Read(0x005b,chip)))
+		{
+			regx=KT_Bus_Read(0x0053,chip);
+			KT_Bus_Write(0x0053,regx&~0x40,chip);
+		}
+		else
+		{
+			regx=KT_Bus_Read(0x0053,chip);
+			KT_Bus_Write(0x0053,regx|0x40,chip);
+		}
 	}
 }
 
@@ -428,34 +443,40 @@ void pilotMuteRefreshChip(UINT8 chip)
 {
 	UINT8 regx;
 	chipSel=chip;
-	if(((0x80&KT_Bus_Read(0x0100,chipSel))==0x80)&&((0x80&KT_Bus_Read(0x0209,chipSel))==0x00))
-    {
-        regx=KT_Bus_Read(0x0087,chipSel);
-        KT_Bus_Write(0x0087,(regx|0x04),chipSel);
-    }
-	else
-    {
-		regx=KT_Bus_Read(0x0087,chipSel);
-        KT_Bus_Write(0x0087,(regx&~0x04),chipSel);
-    }
+	if(KT_Bus_Read(0x010f,chip)==0x10)//a
+	{
+		if(((0x80&KT_Bus_Read(0x0100,chipSel))==0x80)&&((0x80&KT_Bus_Read(0x0209,chipSel))==0x00))
+		{
+			regx=KT_Bus_Read(0x0087,chipSel);
+			KT_Bus_Write(0x0087,(regx|0x04),chipSel);
+		}
+		else
+		{
+			regx=KT_Bus_Read(0x0087,chipSel);
+			KT_Bus_Write(0x0087,(regx&~0x04),chipSel);
+		}
+	}
 }
 
 void snrMuteRefreshChip(UINT8 chip)
 {
 	UINT8 regx;
 	chipSel=chip;
-	if(((KT_Bus_Read(0x0100,chipSel)&0x20)==0x20)&&(KT_Bus_Read(0x020D,chipSel)<=AUTOMUTE_SNR_LOWTH))
-    {
-        regx=KT_Bus_Read(0x0087,chipSel);
-        KT_Bus_Write(0x0087,(regx|0x02),chipSel);
-    }
-	else if((KT_Bus_Read(0x020D,chipSel)>=AUTOMUTE_SNR_HIGHTH)||((KT_Bus_Read(0x0100,chipSel)&0x20)==0x00))
-    {
-		regx=KT_Bus_Read(0x0087,chipSel);
-        KT_Bus_Write(0x0087,(regx&~0x02),chipSel);
-    }
-	else
+	if(KT_Bus_Read(0x010f,chip)==0x10)//a
 	{
+		if(((KT_Bus_Read(0x0100,chipSel)&0x20)==0x20)&&(KT_Bus_Read(0x020D,chipSel)<=AUTOMUTE_SNR_LOWTH))
+		{
+			regx=KT_Bus_Read(0x0087,chipSel);
+			KT_Bus_Write(0x0087,(regx|0x02),chipSel);
+		}
+		else if((KT_Bus_Read(0x020D,chipSel)>=AUTOMUTE_SNR_HIGHTH)||((KT_Bus_Read(0x0100,chipSel)&0x20)==0x00))
+		{
+			regx=KT_Bus_Read(0x0087,chipSel);
+			KT_Bus_Write(0x0087,(regx&~0x02),chipSel);
+		}
+		else
+		{
+		}
 	}
 }
 
